@@ -3,32 +3,49 @@ Tlstrip is a proxy server for TLS-stripping attacks.
 It avoids HSTS protection mechanism by removing "Strict-Transport-Security"
 header from remote server's response.
 
+Passing -n flag makes it proxy connection non-transparently.
 Without an explicit address, it listens on all host's addresses, port 8181.
 
 Usage:
-	tlstrip [address]
+	tlstrip [-n] [address]
 */
 package main
 
 import (
 	"crypto/tls"
+	"flag"
 	"io"
 	"log"
 	"net/http"
-	"os"
+)
+
+var (
+	notStrict = flag.Bool("n", false, "proxy connections non-transparently")
+	addr      string
 )
 
 func main() {
-	addr := ":8181"
-	if len(os.Args) == 2 {
-		addr = os.Args[1]
+	flag.Parse()
+	addr = flag.Arg(0)
+	if addr == "" {
+		addr = ":8181"
 	}
 	log.Println("Listening on", addr)
-	log.Fatal(http.ListenAndServe(addr, http.HandlerFunc(proxy)))
+	log.Println("Transparent:", !*notStrict)
+	log.Fatal(http.ListenAndServe(addr, http.HandlerFunc(proxyHandler)))
 }
 
-func proxy(w http.ResponseWriter, r *http.Request) {
-	url := "https://" + r.URL.Host + r.URL.Path
+func proxyHandler(w http.ResponseWriter, r *http.Request) {
+	url := "https://"
+	if *notStrict {
+		url += r.URL.Host + r.URL.Path
+	} else {
+		url += r.Host + r.RequestURI
+	}
+	proxy(w, r, url)
+}
+
+func proxy(w http.ResponseWriter, r *http.Request, url string) {
 	req, err := http.NewRequest(r.Method, url, r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
